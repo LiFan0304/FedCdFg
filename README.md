@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Enhancing Federated Learning on Non-IID Data via Cross-Cluster Knowledge Distillation and Hard Sample Fine-Tuning
 
 It contains implementation of the following algorithms:
@@ -56,3 +57,6 @@ For the input attribute **algorithms**, list the name of algorithms and separate
 ```
   python main_plot.py --dataset EMnist-alpha0.1-ratio0.1 --algorithms FedGen --batch_size 32 --local_epochs 50 --num_users 10 --num_glob_iters 200 --plot_legend 1
 ```
+=======
+# FedCdFg
+>>>>>>> a98ae5e9e4c26c9e4f651682da8eb28dfd589301
