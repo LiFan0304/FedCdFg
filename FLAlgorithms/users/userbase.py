@@ -29,6 +29,7 @@ class User:
         self.algorithm = args.algorithm
         self.K = args.K
         self.dataset = args.dataset
+        #self.trainloader = DataLoader(train_data, self.batch_size, drop_last=False)
         self.trainloader = DataLoader(train_data, self.batch_size, shuffle=True, drop_last=True)
         self.testloader =  DataLoader(test_data, self.batch_size, drop_last=False)
         self.testloaderfull = DataLoader(test_data, self.test_samples)
@@ -39,7 +40,7 @@ class User:
         self.unique_labels = RUNCONFIGS[dataset_name]['unique_labels']
         self.generative_alpha = RUNCONFIGS[dataset_name]['generative_alpha']
         self.generative_beta = RUNCONFIGS[dataset_name]['generative_beta']
-
+        self.update_data = []
         # those parameters are for personalized federated learning.
         self.local_model = copy.deepcopy(list(self.model.parameters()))
         self.personalized_model_bar = copy.deepcopy(list(self.model.parameters()))
@@ -65,6 +66,8 @@ class User:
         self.dist_loss = nn.MSELoss()
         self.ensemble_loss=nn.KLDivLoss(reduction="batchmean")
         self.ce_loss = nn.CrossEntropyLoss()
+        self.cu_loss = nn.MSELoss()
+
 
     def set_parameters(self, model,beta=1):
         for old_param, new_param, local_param in zip(self.model.parameters(), model.parameters(), self.local_model):
