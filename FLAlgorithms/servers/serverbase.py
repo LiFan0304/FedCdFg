@@ -6,12 +6,12 @@ from utils.model_utils import get_dataset_name, RUNCONFIGS
 import copy
 import torch.nn.functional as F
 import time
+import random
 import torch.nn as nn
 from utils.model_utils import get_log_path, METRICS
 
 class Server:
     def __init__(self, args, model, seed):
-
         # Set up the main attributes
         self.dataset = args.dataset
         self.num_glob_iters = args.num_glob_iters
@@ -24,6 +24,11 @@ class Server:
         self.model_name = model[1]
         self.users = []
         self.selected_users = []
+        self.cluster_users = []
+        self.cluster_models = {}
+        self.cluster_weights = {}
+        self.perturbation = torch.zeros_like(torch.rand(self.batch_size,self.batch_size))
+        self.user_data = []
         self.num_users = args.num_users
         self.beta = args.beta
         self.lamda = args.lamda
@@ -67,6 +72,37 @@ class Server:
     def if_ensemble(self):
         return 'FedE' in self.algorithm
 
+    def send_parameters1(self, mode='all', beta=1, selected=False):
+        users = self.users
+        if selected:
+            assert (self.selected_users is not None and len(self.selected_users) > 0)
+            users = self.selected_users
+        for user in users:
+            if mode == 'all': # share only subset of parameters
+                cluster_id = 0
+                if len(self.cluster_users) > 1:
+                    for i in range(len(self.cluster_users)):
+                        for j in range(len(self.cluster_users[i])):
+                            if user == self.cluster_users[i][j]:
+                                cluster_id = self.cluster_users[i][0]
+                    for cluster, cluster_model in self.cluster_models.items():
+                        if cluster == cluster_id:
+                            user.set_parameters(cluster_model,beta=beta)
+                        # else:
+                        #     user.set_parameters(self.model,beta=beta)
+                # else:
+                #     user.set_parameters(self.model,beta=beta)
+            else: # share all parameters
+                for i in range(len(self.cluster_users)):
+                    for j in range(len(self.cluster_users[i])):
+                        if user == self.cluster_users[i][j]:
+                            cluster_id = self.cluster_users[i][0]
+                for cluster, cluster_model in self.cluster_models.items():
+                    if cluster == cluster_id:
+                        user.set_shared_parameters(cluster_model,beta=beta)
+                    # else:
+                    #     random_cluster, random_model = random.choice(list(self.cluster_models.items()))
+                    #     user.set_shared_parameters(random_model,beta=beta)
     def send_parameters(self, mode='all', beta=1, selected=False):
         users = self.users
         if selected:
@@ -78,7 +114,61 @@ class Server:
             else: # share all parameters
                 user.set_shared_parameters(self.model,mode=mode)
 
+    
+    def add_parameters1(self, cluster_id, user, ratio, partial=False):
+        if partial:
+            for server_param, user_param in zip(self.model.get_shared_parameters(), user.model.get_shared_parameters()):
+                server_param.data = server_param.data + user_param.data.clone() * ratio
+        else:
+            model = self.cluster_models
+            for cluster, cluster_model in self.cluster_models.items():
+                if cluster == cluster_id:
+                    for cluster_param, user_param in zip(cluster_model.parameters(), user.model.parameters()):
+                        cluster_param.data = cluster_param.data + user_param.data.clone() * ratio
+    def add_parameters2(self, cluster_id, cluster_model, ratio, partial=False):
+        if partial:
+            for server_param, user_param in zip(self.model.get_shared_parameters(), user.model.get_shared_parameters()):
+                server_param.data = server_param.data + user_param.data.clone() * ratio
+        else:
+            for cluster_param, user_param in zip(self.model.parameters(), cluster_model.parameters()):
+                cluster_param.data = cluster_param.data + user_param.data.clone() * ratio
+    def aggregate_parameters1(self,partial=False):
+        assert (self.cluster_users is not None and len(self.cluster_users) > 0)
+        if partial:
+            for param in self.model.get_shared_parameters():
+                param.data = torch.zeros_like(param.data)
+        else:
+            for cluster, cluster_model in self.cluster_models.items():
+                for param in cluster_model.parameters():
+                    param.data = torch.zeros_like(param.data)
+        
+        for i in range(len(self.cluster_users)):
+            if len(self.cluster_users)> 1:
+                total_train = 0
+                for j in range(len(self.cluster_users[i])):
+                    if j != 0:
+                        total_train += self.cluster_users[i][j].train_samples
+                for j in range(len(self.cluster_users[i])):
+                    if j == 0:
+                        cluster_id = self.cluster_users[i][j]
+                    if j != 0:
+                        self.add_parameters1(cluster_id, self.cluster_users[i][j], self.cluster_users[i][j].train_samples / total_train,partial=partial)
+        # if len(self.cluster_users) != 1 or len(self.cluster_users) != 0:
+        #     for cluster, cluster_model in self.cluster_models.items():
+        #         self.add_parameters2(cluster_id, cluster_model, 1 / len(self.cluster_models),partial=partial)
+                
+            # else:
+            #     total_train = 0
+            #     for j in range(len(self.cluster_users[i])):
+            #         if j != 0:
+            #             total_train += self.cluster_users[i][j].train_samples
+            #     for j in range(len(self.cluster_users[i])):
+            #         if j == 0:
+            #             cluster_id = self.cluster_users[i][j]
+            #         if j != 0:
+            #             self.add_parameters(self.cluster_users[i][j], self.cluster_users[i][j].train_samples / total_train,partial=partial)
 
+    
     def add_parameters(self, user, ratio, partial=False):
         if partial:
             for server_param, user_param in zip(self.model.get_shared_parameters(), user.model.get_shared_parameters()):
@@ -86,9 +176,6 @@ class Server:
         else:
             for server_param, user_param in zip(self.model.parameters(), user.model.parameters()):
                 server_param.data = server_param.data + user_param.data.clone() * ratio
-
-
-
     def aggregate_parameters(self,partial=False):
         assert (self.selected_users is not None and len(self.selected_users) > 0)
         if partial:
@@ -102,6 +189,36 @@ class Server:
             total_train += user.train_samples
         for user in self.selected_users:
             self.add_parameters(user, user.train_samples / total_train,partial=partial)
+            # print("1,2",user,user.train_samples / total_train)
+    def aggregate_parameters2(self,partial=False):
+        assert (self.selected_users is not None and len(self.selected_users) > 0)
+        if partial:
+            for param in self.model.get_shared_parameters():
+                param.data = torch.zeros_like(param.data)
+        else:
+            for cluster, cluster_model in self.cluster_models.items():
+                for param in cluster_model.parameters():
+                    param.data = torch.zeros_like(param.data)
+        total_train = 0
+        for user in self.selected_users:
+            total_train += user.train_samples
+        
+        for cluster, cluster_model in self.cluster_models.items():
+            cluster_train = 0
+            for i in range(len(self.cluster_users)):
+                cluster_id = self.cluster_users[i][0]
+                if cluster == cluster_id:
+                    for j in range(len(self.cluster_users[i])):
+                        if j != 0:
+                            cluster_train += self.cluster_users[i][j].train_samples
+            self.add_parameters3(cluster_model,cluster_train/total_train,partial=partial)
+    def add_parameters3(self, cluster_model, ratio, partial=False):
+        if partial:
+            for server_param, user_param in zip(self.model.get_shared_parameters(), cluster_model.get_shared_parameters()):
+                server_param.data = server_param.data + user_param.data.clone() * ratio
+        else:
+            for server_param, user_param in zip(self.model.parameters(), cluster_model.parameters()):
+                server_param.data = server_param.data + user_param.data.clone() * ratio
 
 
     def save_model(self):
@@ -116,6 +233,7 @@ class Server:
         assert (os.path.exists(model_path))
         self.model = torch.load(model_path)
 
+
     def model_exists(self):
         return os.path.exists(os.path.join("models", self.dataset, "server" + ".pt"))
     
@@ -128,9 +246,9 @@ class Server:
         Return:
             list of selected clients objects
         '''
-        if(num_users == len(self.users)):
-            print("All users are selected")
-            return self.users
+        # if(num_users == len(self.users)):
+        #     print("All users are selected")
+        #     return self.users
 
         num_users = min(num_users, len(self.users))
         if return_idx:
@@ -144,6 +262,7 @@ class Server:
         self.loss=nn.NLLLoss()
         self.ensemble_loss=nn.KLDivLoss(reduction="batchmean")#,log_target=True)
         self.ce_loss = nn.CrossEntropyLoss()
+        self.gu_loss = nn.MSELoss()
 
 
     def save_results(self, args):
@@ -192,7 +311,7 @@ class Server:
         stats = self.test_personalized_model(selected=selected)
         test_ids, test_num_samples, test_tot_correct, test_losses = stats[:4]
         glob_acc = np.sum(test_tot_correct)*1.0/np.sum(test_num_samples)
-        test_loss = np.sum([x * y for (x, y) in zip(test_num_samples, test_losses)]).item() / np.sum(test_num_samples)
+        test_loss = np.sum([x * y.detach() for (x, y) in zip(test_num_samples, test_losses)]).item() / np.sum(test_num_samples)
         if save:
             self.metrics['per_acc'].append(glob_acc)
             self.metrics['per_loss'].append(test_loss)
