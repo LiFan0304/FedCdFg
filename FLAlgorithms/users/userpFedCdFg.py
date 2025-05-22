@@ -65,8 +65,7 @@ class UserpFedCdFg(User):
                     generative_beta = self.exp_lr_scheduler(glob_iter, decay=0.98, init_lr=self.generative_beta)
                     flag = False
                     batch_size = 32
-                    diff_input = torch.randn(batch_size,batch_size)
-                    perturbation = torch.zeros_like(diff_input)
+                    perturbation  = torch.zeros_like(torch.randn(batch_size,batch_size))
                     gen_output = self.generative_model(y, flag, perturbation, latent_layer_idx=self.latent_layer_idx)['output']
                     target_p = F.softmax(self.model(gen_output, start_layer_idx=self.latent_layer_idx, logit=True)['logit'],dim=1)
                     user_latent_loss = generative_beta*self.ensemble_loss(user_output_logp, target_p)
