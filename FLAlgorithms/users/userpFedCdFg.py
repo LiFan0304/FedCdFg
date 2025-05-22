@@ -62,43 +62,7 @@ class UserpFedCdFg(User):
                 update_f.append(user_logit_logp.detach())
                 predictive_loss = self.loss(user_output_logp, y)
 
-                #### sample y and generate z
-                if regularization and epoch < early_stop:
-                    generative_alpha = self.exp_lr_scheduler(glob_iter, decay=0.98, init_lr=self.generative_alpha)
-                    generative_beta = self.exp_lr_scheduler(glob_iter, decay=0.98, init_lr=self.generative_beta)
-                    ### get generator output(latent representation) of the same label
-                    flag = False
-                    batch_size = 32
-                    diff_input = torch.randn(batch_size, batch_size)
-                    perturbation = torch.zeros_like(diff_input)
-                    gen_output = self.generative_model(y, flag, perturbation, latent_layer_idx=self.latent_layer_idx)[
-                        'output']
-
-                    # print("gen_output0",gen_output,"size",gen_output.size())
-                    logit_given_gen = self.model(gen_output, start_layer_idx=self.latent_layer_idx, logit=True)['logit']
-                    # print("1",logit_given_gen)
-                    # if epoch % 5 == 0:
-                    update_f.append(logit_given_gen.detach())
-                    target_p = F.softmax(logit_given_gen + 1e-10, dim=1)
-                    # print("target_p",target_p)
-                    user_latent_loss = generative_beta * self.ensemble_loss(user_output_logp, target_p)
-
-                    sampled_y = np.random.choice(self.available_labels, self.gen_batch_size)
-                    sampled_y = torch.tensor(sampled_y)
-                    gen_result = self.generative_model(sampled_y, flag, perturbation,
-                                                       latent_layer_idx=self.latent_layer_idx)
-                    # print("gen_result",gen_result,"size",len(gen_result))
-                    gen_output = gen_result['output']  # latent representation when latent = True, x otherwise
-                    user_output_logp = self.model(gen_output, start_layer_idx=self.latent_layer_idx)['output']
-                    teacher_loss = generative_alpha * torch.mean(
-                        self.generative_model.crossentropy_loss(user_output_logp, sampled_y)
-                    )
-                    # this is to further balance oversampled down-sampled synthetic data    gen_ratio * teacher_loss
-                    gen_ratio = self.gen_batch_size / self.batch_size
-                    loss = predictive_loss + gen_ratio * teacher_loss + user_latent_loss
-                else:
-                    #### get loss and perform optimization
-                    loss = predictive_loss
+                loss = predictive_loss
                 loss.backward()
                 self.optimizer.step()  # self.local_model)
         self.clone_model_paramenter(self.model.parameters(), self.local_model)
