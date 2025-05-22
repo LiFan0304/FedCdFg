@@ -54,14 +54,13 @@ class UserpFedCdFg(User):
                 X, y = samples['X'], samples['y']
                 self.update_label_counts(samples['labels'], samples['counts'])
                 model_result = self.model(X, logit=True)
-                
                 user_output_logp = model_result['output']
-                user_logit_logp = model_result['logit']
                 # data distribution
                 update_c.append(y.detach())
                 update_f.append(user_logit_logp.detach())
                 predictive_loss = self.loss(user_output_logp, y)
-                if regularization and epoch < early_stop:
+                
+                if regularization:
                     generative_alpha = self.exp_lr_scheduler(glob_iter, decay=0.98, init_lr=self.generative_alpha)
                     generative_beta = self.exp_lr_scheduler(glob_iter, decay=0.98, init_lr=self.generative_beta)
                     flag = False
@@ -71,11 +70,8 @@ class UserpFedCdFg(User):
                     gen_output = self.generative_model(y, flag, perturbation, latent_layer_idx=self.latent_layer_idx)['output']
                     target_p = F.softmax(self.model(gen_output, start_layer_idx=self.latent_layer_idx, logit=True)['logit'],dim=1)
                     user_latent_loss = generative_beta*self.ensemble_loss(user_output_logp, target_p)
-
-                    sampled_y = np.random.choice(self.available_labels, self.gen_batch_size)
-                    sampled_y = torch.tensor(sampled_y)
-                    gen_result = self.generative_model(sampled_y, flag, perturbation, latent_layer_idx=self.latent_layer_idx)
-                    gen_output = gen_result['output']  # latent representation when latent = True, x otherwise
+                    sampled_y = torch.tensor(np.random.choice(self.available_labels, self.gen_batch_size))
+                    gen_output = self.generative_model(sampled_y, flag, perturbation, latent_layer_idx=self.latent_layer_idx)['output']
                     user_output_logp = self.model(gen_output, start_layer_idx=self.latent_layer_idx)['output']
                     teacher_loss = generative_alpha * torch.mean(
                          self.generative_model.crossentropy_loss(user_output_logp, sampled_y)
