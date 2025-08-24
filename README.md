@@ -29,7 +29,7 @@ python generate_niid_dirichlet.py --sampling_ratio 0.1 --alpha 0.1 --n_user 20
 - Similarly, to generate *non-iid* **CIFAR100** Dataset, using 100% of the total available training samples:
 <pre><code>cd FedGen/data/CIFAR100
 python generate_niid_dirichlet.py --sampling_ratio 1.0 --alpha 0.1 --n_user 20 
-### This will generate a dataset located at FedGen/data/EMnist/u20-letters-alpha0.1-ratio0.1/
+### This will generate a dataset located at FedGen/data/CIFAR100/u20-letters-alpha0.1-ratio0.1/
 </code></pre> 
 
 ## Run Experiments: 
